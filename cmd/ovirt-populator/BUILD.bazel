@@ -1,0 +1,40 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "ovirt-populator",
+    srcs = ["ovirt-populator.go"],
+    importpath = "github.com/konveyor/forklift-controller/ovirt-populator",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:meta",
+        "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1/unstructured",
+        "//vendor/k8s.io/apimachinery/pkg/runtime/schema",
+        "//vendor/k8s.io/client-go/dynamic",
+        "//vendor/k8s.io/client-go/kubernetes",
+        "//vendor/k8s.io/client-go/rest",
+        "//vendor/k8s.io/klog/v2:klog",
+    ],
+)
+
+go_library(
+    name = "ovirt-populator_lib",
+    srcs = ["ovirt-populator.go"],
+    importpath = "github.com/konveyor/forklift-controller/cmd/ovirt-populator",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//vendor/github.com/prometheus/client_golang/prometheus",
+        "//vendor/github.com/prometheus/client_golang/prometheus/promhttp",
+        "//vendor/k8s.io/klog/v2:klog",
+    ],
+)
+
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_image",
+)
+
+container_image(
+    name = "ovirt-populator-image",
+    base = "@ovirt-populator-image-dockerfile//image:dockerfile_image.tar",
+    visibility = ["//visibility:public"],
+)

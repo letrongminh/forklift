@@ -1,0 +1,40 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "forklift-api-lib",
+    srcs = ["forklift-api.go"],
+    importpath = "github.com/konveyor/forklift-controller/cmd/forklift-api",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/forklift-api",
+        "//pkg/lib/logging",
+        "//vendor/github.com/go-logr/logr",
+        "//vendor/sigs.k8s.io/controller-runtime/pkg/log",
+    ],
+)
+
+go_binary(
+    name = "forklift-api",
+    embed = [":forklift-api-lib"],
+    static = "on",
+    visibility = ["//visibility:public"],
+)
+
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_image",
+)
+
+container_image(
+    name = "forklift-api-image",
+    #architecture = select({
+    #    "@io_bazel_rules_go//go/platform:linux_arm64": "arm64",
+    #    "//conditions:default": "amd64",
+    #}),
+    base = "@ubi9-minimal//image",
+    directory = "/usr/local/bin/",
+    entrypoint = ["/usr/local/bin/forklift-api"],
+    files = [":forklift-api"],
+    #user = "1001",
+    visibility = ["//visibility:public"],
+)

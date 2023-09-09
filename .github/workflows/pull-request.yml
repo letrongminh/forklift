@@ -1,0 +1,121 @@
+# Basic CI workflow for pull requests
+name: CI
+
+# Controls when the action will run. 
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially
+jobs:
+  ci_setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            source_provider: ovirt
+
+          - os: ubuntu-latest
+            source_provider: vsphere
+
+          - os: ubuntu-latest
+            source_provider: openstack
+
+    runs-on: ${{ matrix.os }}
+    env:
+      USE_BAZEL_VERSION: 5.4.0
+    timeout-minutes: 45
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          swap-storage: false
+          docker-images: false
+      - name: Check out forklift repository
+        uses: actions/checkout@v3
+
+      - name: Checkout forkliftci
+        uses: actions/checkout@v3
+        with:
+          repository: kubev2v/forkliftci
+          ref: v8.0
+
+      - name: Build and setup everything with bazel
+        id: forkliftci
+        uses: kubev2v/forkliftci/ci/build-and-setup@v8.0
+        with:
+          provider_name: ${{ matrix.source_provider }}
+          gh_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: kubectl version
+
+      - run: kubectl get pods -n konveyor-forklift
+
+      - name: Test call to Forklift
+        run: |
+          curl -k "${{ steps.forkliftci.outputs.cluster }}/apis/forklift.konveyor.io/v1beta1/namespaces/konveyor-forklift/providers" --header "Authorization: Bearer ${{ steps.forkliftci.outputs.token }}"
+
+      - name: Run e2e sanity suite
+        uses: kubev2v/forkliftci/ci/run-suite@v8.0
+        with:
+          suite_name: e2e-sanity-${{ matrix.source_provider }}
+
+      - name: save k8s logs and upload-artifact
+        if: ${{ always() }}
+        uses: kubev2v/forkliftci/ci/save-artifacts@v8.0
+        with:
+          source_provider: ${{ matrix.source_provider }}
+
+
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: Checks-out repository under $GITHUB_WORKSPACE
+        uses: actions/checkout@v2
+        with:
+          path: go/src/github.com/${{github.repository}}
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ${HOME}/go/pkg/mod
+          key: ${{ runner.os }}-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.OS }}-build-${{ env.cache-name }}-
+            ${{ runner.OS }}-build-
+            ${{ runner.OS }}
+
+      - name: Setup Golang
+        uses: actions/setup-go@v2
+        with:
+          # NOTE: Keep the version in sync with Go toolchain in WORKSPACE.
+          go-version: '1.19.3'
+
+      # Setup the run environment and run CI test suite
+      - name: Run test suite
+        run: |
+          cd ${GITHUB_WORKSPACE}/go/src/github.com/${GITHUB_REPOSITORY}
+          GOPATH=${GITHUB_WORKSPACE}/go make ci
+
+      # Push code coverage using Codecov Action
+      - name: Push code coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./go/src/github.com/${{ github.repository }}/cover.out
+          flags: unittests
+          fail_ci_if_error: false # see https://github.com/codecov/codecov-action/issues/598
